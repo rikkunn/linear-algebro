@@ -13,13 +13,29 @@ const FSHAPE = [[0,0],[1.6,0],[1.6,.5],[.5,.5],[.5,1],[1.2,1],[1.2,1.5],[.5,1.5]
 function frame(root,{title,hint='丸い点を指で動かせます',legend,h=300,range=4,cy,three,opt}){
   root.innerHTML=`<div class="viz-cap"><b>${title}</b>${hint?`<span class="hint">${hint}</span>`:''}</div>
   ${legend?`<div class="viz-leg">${legend.map(l=>`<span class="${l[0]}"><i></i>${l[1]}</span>`).join('')}</div>`:''}
-  <canvas tabindex="0" role="img" aria-label="${title}の図。${three?'左右の矢印キーで回せます。':'矢印キーで点を動かし、スペースキーで動かす点を切り替えます。'}"></canvas>
+  <canvas tabindex="0" role="img" aria-label="${title}の図。${three?'左右の矢印キーで回せます。':'矢印キーで点を動かし、スペースキーで動かす点を切り替えます。'}図の点は、このあとの調整つまみでも動かせます。"></canvas>
   <p class="sr" aria-live="polite"></p><div class="viz-read"></div><div class="viz-msg"></div><div class="viz-ctl"></div>`;
   const q=s=>root.querySelector(s);
   const plot=three?new Plot3(q('canvas'),Object.assign({h},opt)):new Plot(q('canvas'),{h,range,cy});
   const read=q('.viz-read'), msg=q('.viz-msg'), live=q('.sr');
   plot.onSettle=()=>{ live.textContent=read.textContent+' '+msg.textContent; };
+  queueMicrotask(()=>a11ySliders(root,plot,three));
   return {plot,read,msg,ctl:q('.viz-ctl'),root};
+}
+/* 図の点を、画面の外に置いた調整つまみでも動かせるようにする (読み上げ機能やキーボード向け) */
+const CNAME={'--c-i':'赤い点','--c-j':'緑の点','--c-m':'紫の点','--c-k':'青い点','--ink':'黒い点','--ink2':'灰色の点'};
+function a11ySliders(root,plot,three){
+  const hs=plot.handles.filter(h=>!h.fixed); if(!hs.length) return;
+  const box=document.createElement('div'); box.className='sr'; const seen={};
+  hs.forEach(h=>{ const base=CNAME[h.color]||'点'; seen[base]=(seen[base]||0)+1; const nm=h.name||base+(hs.filter(x=>(CNAME[x.color]||'点')===base).length>1?' '+seen[base]:'');
+    ['x','y'].forEach(ax=>{ const R=three?(h.lim||3):plot.range, st=h.snap||(h.snap===0?.05:.25), inp=document.createElement('input');
+      inp.type='range'; inp.min=-R; inp.max=R; inp.step=st; inp.value=h[ax]; inp.setAttribute('aria-label',`${nm}の ${ax} 座標`);
+      inp.oninput=()=>{ if(h.hide) return; const v=+inp.value;
+        if(three){ h[ax]=v; plot.render(); } else plot.place(h,ax==='x'?v:h.x,ax==='y'?v:h.y);
+        inp.value=h[ax]; inp.setAttribute('aria-valuetext',`${fmt(h.x)}, ${fmt(h.y)}`); };
+      inp.onchange=()=>plot.onSettle&&plot.onSettle();
+      box.append(inp); }); });
+  root.querySelector('canvas').after(box);
 }
 function seg(ctl,items,onPick,active=0){
   const d=document.createElement('div'); d.className='seg'; d.setAttribute('role','group');
@@ -112,18 +128,23 @@ VIZ.dotProj=root=>{
 
 /* 3 外積 (立体) */
 VIZ.cross3=root=>{
-  const {plot,read,msg,ctl}=frame(root,{title:'外積は両方に直交する',hint:'なぞると回ります。丸い点も動かせます',three:true,h:320,legend:[['ci','a'],['cj','b'],['ck','a×b'],['ca','平行四辺形']]});
-  const a={x:1.5,y:0,z:0,color:'--c-i',lim:2}, b={x:.5,y:1.5,z:0,color:'--c-j',lim:2}; plot.handles=[a,b];
+  const {plot,read,msg,ctl}=frame(root,{title:'外積は両方に直交する',hint:'なぞると回ります。丸い点も動かせます',three:true,h:330,opt:{scale:56,cy:.64},legend:[['ci','a'],['cj','b'],['ck','a×b (長さは半分で表示)'],['ca','平行四辺形']]});
+  const a={x:1.5,y:0,z:0,color:'--c-i',lim:2,name:'a'}, b={x:.5,y:1.5,z:0,color:'--c-j',lim:2,name:'b'}; plot.handles=[a,b]; let ghost=null;
+  const cr=(A,B)=>[A[1]*B[2]-A[2]*B[1],A[2]*B[0]-A[0]*B[2],A[0]*B[1]-A[1]*B[0]];
   plot.draw=p=>{
-    p.floor(3); const A=[a.x,a.y,a.z], B=[b.x,b.y,b.z], C=[A[1]*B[2]-A[2]*B[1],A[2]*B[0]-A[0]*B[2],A[0]*B[1]-A[1]*B[0]], len=Math.hypot(...C);
+    p.floor(2.5); const A=[a.x,a.y,a.z], B=[b.x,b.y,b.z], C=cr(A,B), len=Math.hypot(...C);
     if(b.z>0) p.line(B,[b.x,b.y,0],p.css('--ink3'),1.2,[4,4]);
+    if(a.z>0) p.line(A,[a.x,a.y,0],p.css('--ink3'),1.2,[4,4]);
     p.poly([[0,0,0],A,[A[0]+B[0],A[1]+B[1],A[2]+B[2]],B],p.css('--c-area'),.35,p.css('--c-area'));
+    if(ghost) p.line([0,0,0],ghost.map(x=>x/2),p.css('--ink3'),2,[5,4]);
     p.arrow([0,0,0],A,p.css('--c-i'),3,'a'); p.arrow([0,0,0],B,p.css('--c-j'),3,'b'); p.arrow([0,0,0],C.map(x=>x/2),p.css('--c-k'),4,'a×b');
     read.innerHTML=`<span><b class="ck">a×b</b> = ${V(C)}</span><span>‖a×b‖ = <b class="ca">${fmt(len)}</b> = 平行四辺形の面積</span>`;
-    msg.innerHTML=len<1e-9?'<b>a と b が同じ直線上にあります。</b> 平行四辺形がつぶれ、外積は零ベクトルです。':'青い矢印は a と b の両方に直角です。見やすいように長さを半分にして描いています。';
+    msg.innerHTML=len<1e-9?'<b>a と b が同じ直線上にあります。</b> 平行四辺形がつぶれ、外積は零ベクトルです。':ghost?'入れ替える前の a×b を灰色の破線で残しています。長さは同じで、向きが反対になりました。':'青い矢印は a と b の両方に直角です。右手の親指を a、人差し指を b に向けると、中指の向きが a×b です。';
   };
-  slider(ctl,'b の高さ',0,2,.25,0,v=>{b.z=v;plot.render();});
-  btn(ctl,'a と b を入れ替える',()=>{ const t=[a.x,a.y]; a.x=b.x; a.y=b.y; b.x=t[0]; b.y=t[1]; plot.render(); plot.onSettle(); });
+  const sa=slider(ctl,'a の高さ',0,2,.25,0,v=>{a.z=v;ghost=null;plot.render();});
+  const sb=slider(ctl,'b の高さ',0,2,.25,0,v=>{b.z=v;ghost=null;plot.render();});
+  btn(ctl,'a と b を入れ替える',()=>{ ghost=cr([a.x,a.y,a.z],[b.x,b.y,b.z]); for(const k of ['x','y','z']){ const t=a[k]; a[k]=b[k]; b[k]=t; } sa.set(a.z); sb.set(b.z); plot.render(); plot.onSettle(); });
+  plot.onSettle2=()=>{ghost=null;};
   plot.render(); return ()=>plot.destroy();
 };
 
@@ -295,16 +316,17 @@ VIZ.elim=root=>{
   <div class="steps-op2"></div><div class="steps"></div><div class="steps-op" aria-live="polite"></div><div class="dots">${S.map(()=>'<i></i>').join('')}</div>
   <div class="viz-ctl"><button type="button" class="mini" data-d="-1">戻る</button><button type="button" class="mini solid" data-d="1">次の操作</button><button type="button" class="mini" data-d="0">最初から</button></div>`;
   const q=s=>root.querySelector(s), st=q('.steps'), op=q('.steps-op'), op2=q('.steps-op2'), dots=[...root.querySelectorAll('.dots i')], bs=root.querySelectorAll('button'); let i=0;
-  const plot=new Plot3(q('canvas'),{h:250,scale:38,cy:.52,yaw:-.5,pitch:.38});
+  const plot=new Plot3(q('canvas'),{h:260,scale:44,cy:.52,yaw:.6,pitch:.38});
   let N=S[0][0].map(r=>r.slice(0,3)), from=N, to=N;
   plot.draw=p=>{ const L=2.2; cubeWire(p,L); const cols=['--c-i','--c-j','--c-m'];
     N.map((n,k)=>({pg:planeCube(n,L),k})).filter(o=>o.pg).sort((a,b)=>p.depth(b.pg)-p.depth(a.pg)).forEach(o=>p.poly(o.pg,p.css(cols[o.k]),.3,p.css(cols[o.k]),1.5));
-    p.dot([0,0,0],p.css('--bg'),8); p.dot([0,0,0],p.css('--c-k'),5.5); const o=p.P([0,0,0]); p.label(o[0],o[1]-16,'(1, 2, 3)',p.css('--c-k')); };
-  const show=anim=>{ const [m,hl,name,text]=S[i], col=plot.css('--c-m');
-    const piv=m.map(r=>r.findIndex((v,j)=>j<3&&v!==0));
-    const rows=m.map((r,ri)=>r.map((v,j)=>{ let s=String(v); if(j===piv[ri]) s='\\boxed{'+s+'}'; return ri===hl?`\\textcolor{${col}}{${s}}`:s; }).join('&')).join('\\\\');
+    const ax=[[[2.4,0,0],'x'],[[0,2.4,0],'y'],[[0,0,2.4],'z']]; ax.forEach(([v,l])=>{ p.line(v.map(x=>-x),v,p.css('--ink3'),1.2); const e=p.P(v); p.label(e[0],e[1],l,p.css('--ink3')); });
+    p.dot([0,0,0],p.css('--bg'),8); p.dot([0,0,0],p.css('--c-k'),5.5); const o=p.P([0,0,0]); p.label(o[0]+28,o[1]-14,'(1, 2, 3)',p.css('--c-k')); };
+  const PV=[[0,0],[0,0],[0,0],[1,1],[2,2],[2,2],[2,2],[1,1]];
+  const show=anim=>{ const [m,hl,name,text]=S[i], col=hl>=0?plot.css(['--c-i','--c-j','--c-m'][hl]):'', pv=PV[i];
+    const rows=m.map((r,ri)=>r.map((v,j)=>{ let s=String(v); if(ri===pv[0]&&j===pv[1]) s='\\boxed{'+s+'}'; return ri===hl?`\\textcolor{${col}}{${s}}`:s; }).join('&')).join('\\\\');
     st.innerHTML=TeX(`\\left(\\begin{array}{ccc|c}${rows}\\end{array}\\right)`,true); st.firstElementChild.classList.add('swap');
-    op2.textContent=`${i} / ${S.length-1} 手　${name}`; op.textContent=text+(i===0?' 四角で囲んだ数がピボットです。':''); dots.forEach((d,k)=>d.classList.toggle('on',k===i));
+    op2.textContent=`${i} / ${S.length-1} 手　${name}`; op.textContent=text+(i===0?' 四角で囲んだ数が、次の操作で使うピボットです。':''); dots.forEach((d,k)=>d.classList.toggle('on',k===i));
     bs[0].disabled=i===0; bs[1].disabled=i===S.length-1;
     from=N; to=m.map(r=>r.slice(0,3)); if(anim) plot.play(700,t=>{ N=from.map((r,a)=>r.map((v,b)=>v+(to[a][b]-v)*t)); }); else { N=to; plot.render(); } };
   bs.forEach(b=>b.onclick=()=>{ const d=+b.dataset.d; i=d===0?0:Math.max(0,Math.min(S.length-1,i+d)); show(true); });
@@ -336,11 +358,11 @@ VIZ.det=root=>{
 
 /* 7 3 次の行列式は体積 */
 VIZ.det3=root=>{
-  const {plot,read,msg,ctl}=frame(root,{title:'3 次の行列式は体積の倍率',hint:'なぞると回ります。丸い点も動かせます',three:true,h:330,legend:[['ci','e₁ の行き先'],['cj','e₂ の行き先'],['cm','e₃ の行き先'],['ca','立方体の行き先']]});
+  const {plot,read,msg,ctl}=frame(root,{title:'3 次の行列式は体積の倍率',hint:'なぞると回ります。丸い点も動かせます',three:true,h:330,opt:{scale:60,cy:.68},legend:[['ci','e₁ の行き先'],['cj','e₂ の行き先'],['cm','e₃ の行き先'],['ca','立方体の行き先']]});
   const a={x:1.5,y:0,z:0,color:'--c-i',lim:2.5}, b={x:.25,y:1.5,z:0,color:'--c-j',lim:2.5}, c={x:.25,y:.25,z:1.5,color:'--c-m',lim:2.5}; plot.handles=[a,b,c];
   const add=(...v)=>v.reduce((s,x)=>[s[0]+x[0],s[1]+x[1],s[2]+x[2]],[0,0,0]);
   plot.draw=p=>{
-    p.floor(3); const A=[a.x,a.y,a.z],B=[b.x,b.y,b.z],C=[c.x,c.y,c.z], O=[0,0,0];
+    p.floor(2.5); const A=[a.x,a.y,a.z],B=[b.x,b.y,b.z],C=[c.x,c.y,c.z], O=[0,0,0];
     const d=A[0]*(B[1]*C[2]-B[2]*C[1])-B[0]*(A[1]*C[2]-A[2]*C[1])+C[0]*(A[1]*B[2]-A[2]*B[1]);
     const F=[[O,A,add(A,B),B],[O,A,add(A,C),C],[O,B,add(B,C),C],[C,add(A,C),add(A,B,C),add(B,C)],[B,add(A,B),add(A,B,C),add(B,C)],[A,add(A,B),add(A,B,C),add(A,C)]];
     F.sort((x,y)=>p.depth(y)-p.depth(x)).forEach(f=>p.poly(f,p.css('--c-area'),.2,p.css('--c-area'),1.3));
@@ -407,32 +429,32 @@ VIZ.basis=root=>{
 
 /* 9 核と像。左が入力、右が出力 */
 VIZ.kernel=root=>{
-  const {plot,read,msg,ctl}=frame(root,{title:'つぶれる方向と残る方向',h:300,range:5.2,legend:[['ci','A の 1 列目'],['cj','A の 2 列目'],['cm','核'],['ck','像']]});
-  const O=2.6, c1={x:O+1,y:.5,color:'--c-i'}, c2={x:O+.5,y:1,color:'--c-j'}; let t=0;
-  [c1,c2].forEach(h=>{ h.lock=(x,y)=>[Math.max(O-2,Math.min(O+2,x)),Math.max(-2,Math.min(2,y))]; });
+  const {plot,read,msg,ctl}=frame(root,{title:'つぶれる方向と残る方向',h:300,range:5.2,legend:[['ci','A の 1 列目'],['cj','A の 2 列目'],['cm','核と、核の上の点'],['ck','像']]});
+  const O=2.6, c1={x:O+1,y:.5,color:'--c-i',name:'1 列目の先'}, c2={x:O+.5,y:1,color:'--c-j',name:'2 列目の先'}; let t=0;
+  [c1,c2].forEach(h=>{ h.lock=(x,y)=>[Math.max(O-1.25,Math.min(O+1.25,x)),Math.max(-1.25,Math.min(1.25,y))]; });
   plot.handles=[c1,c2];
-  const pts=[]; for(let x=-1.5;x<=1.5;x+=.5) for(let y=-1.5;y<=1.5;y+=.5) pts.push([x,y]);
-  const pal=['--c-i','--c-area','--c-j','--c-k','--c-m','--ink2','--c-e'];
+  const pts=[]; for(let x=-1;x<=1.001;x+=.5) for(let y=-1;y<=1.001;y+=.5) pts.push([x,y]);
   plot.draw=p=>{
     const A=[c1.x-O,c2.x-O,c1.y,c2.y], d=det2(A), n1=Math.hypot(A[0],A[2]), n2=Math.hypot(A[1],A[3]), rk=Math.abs(d)>1e-9?2:(n1>1e-9||n2>1e-9?1:0);
     const img=n1>1e-9?[A[0]/n1,A[2]/n1]:n2>1e-9?[A[1]/n2,A[3]/n2]:[1,0];
     const ker=rk===1?(n1>1e-9?[-(A[1]*img[0]+A[3]*img[1]),n1]:[1,0]):null, half=p.w/2;
+    const onK=q=>{ const y=mul(A,q); return Math.hypot(y[0],y[1])<1e-9; };
     for(const side of [0,1]){ p.clip(side*half,(side+1)*half); const ox=side?O:-O;
       for(let k=-3;k<=3;k++){ p.line([ox+k,-9],[ox+k,9],p.css('--grid'),1); p.line([ox-9,k],[ox+9,k],p.css('--grid'),1); }
       p.line([ox-9,0],[ox+9,0],p.css('--grid2'),1.2); p.line([ox,-9],[ox,9],p.css('--grid2'),1.2);
-      if(side===0&&ker) p.inf([-O,0],ker,p.css('--c-m'),2,[6,5]);
-      if(side===1&&rk===1) p.inf([O,0],img,p.css('--c-k'),2.5);
-      if(side===1){ p.arrow([O,0],[c1.x,c1.y],p.css('--c-i'),2.5); p.arrow([O,0],[c2.x,c2.y],p.css('--c-j'),2.5); }
+      if(side===0&&ker){ pts.forEach(q=>p.inf([q[0]-O,q[1]],ker,p.css('--grid2'),1,[3,4])); p.inf([-O,0],ker,p.css('--c-m'),2.5,[6,5]); }
+      if(side===0) pts.forEach(q=>p.dot([q[0]-O,q[1]],onK(q)&&rk<2?p.css('--c-m'):p.css('--ink2'),3.2));
+      if(side===1){ if(rk===1&&t>.5) p.inf([O,0],img,p.css('--c-k'),2.5);
+        pts.forEach(q=>{ const y=mul(A,q); p.dot([O+q[0]+(y[0]-q[0])*t,q[1]+(y[1]-q[1])*t],onK(q)&&rk<2?p.css('--c-m'):p.css('--ink2'),3.2); });
+        p.arrow([O,0],[c1.x,c1.y],p.css('--c-i'),2.5); p.arrow([O,0],[c2.x,c2.y],p.css('--c-j'),2.5); }
       p.ctx.restore(); }
-    p.line([0,-9],[0,9],p.css('--line2'),1); p.label(half/2,14,'入力',p.css('--ink2')); p.label(half*1.5,14,'出力',p.css('--ink2'));
-    for(const q of pts){ const y=mul(A,q), band=rk===1?Math.round((y[0]*img[0]+y[1]*img[1])*4):Math.round(q[0]*2);
-      const a=[q[0]-O,q[1]], b=[y[0]+O,y[1]]; p.dot([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t],p.css(pal[((band%7)+7)%7]),3.2); }
+    p.line([0,-9],[0,9],p.css('--line3'),1); p.label(half/2,14,'入力',p.css('--ink2')); p.label(half*1.5,14,'出力',p.css('--ink2'));
     read.innerHTML=`<span>${tx('A='+matTex(A,p.css('--c-i'),p.css('--c-j')))}</span><span>ランク ${rk}</span><span>核の次元 ${2-rk}</span><span>${rk} + ${2-rk} = 2</span>`;
-    msg.innerHTML=t<.98?['「再生」を押すと全部の点が原点に移ります。','紫の破線が核です。破線に平行に並んだ同じ色の点は、右側で 1 点に集まります。「再生」を押してください。','列が同じ直線上にないので、何もつぶれません。「再生」を押してください。'][rk]:
-      ['<b>ランク 0。</b> 零行列はすべての点を原点に移します。像は原点だけで、核は平面全体です。','<b>ランク 1。</b> 平面が青い直線 (像) につぶれました。同じ色の点が 1 点に重なっています。核の方向の 1 次元ぶんがつぶれ、1 次元ぶんが残りました。','<b>ランク 2。</b> 点は重ならずに広がっています。原点に移るのは原点だけで、核は {0} です。'][rk];
+    msg.innerHTML=t<.98?['「再生」を押すと、右側の点が全部原点に移ります。','左側の紫の破線が核です。細い破線に沿って並んだ点は、右側でそれぞれ 1 点に重なります。「再生」を押してください。','2 本の列が同じ直線上にないので、何もつぶれません。「再生」を押してください。'][rk]:
+      ['<b>ランクは 0 です。</b> 零行列はすべての点を原点に移します。像は原点だけで、核は平面全体です。','<b>ランクは 1 です。</b> 平面が青い直線 (像) につぶれました。左側の破線に沿って並んでいた点は、右側でそれぞれ 1 点に重なっています。紫の点 (核の上の点) は原点に集まりました。','<b>ランクは 2 です。</b> 点は重ならずに広がっています。原点に移るのは原点だけなので、核は {0} です。'][rk];
   };
   const go=()=>{ t=0; plot.play(1300,x=>{t=x;}); };
-  const P=[[[O+1,.5],[O+.5,1]],[[O+1,.5],[O+2,1]],[[O,0],[O,0]]];
+  const P=[[[O+1,.5],[O+.5,1]],[[O+1,.5],[O+.5,.25]],[[O,0],[O,0]]];
   const sg=seg(ctl,['ランク 2','ランク 1','ランク 0'],i=>{ t=0; moveTo(plot,[c1,c2],P[i],500); });
   plot.onDrag=()=>{ sg.clear(); t=0; };
   btn(ctl,'再生',go,true); btn(ctl,'点を戻す',()=>{cancelAnimationFrame(plot.raf);t=0;plot.render();});
@@ -453,7 +475,7 @@ VIZ.kernel3=root=>{
     if(I.img&&t>.98){ const s=1.9/Math.max(...I.img.map(Math.abs)); p.line(I.img.map(v=>-v*s),I.img.map(v=>v*s),p.css('--c-k'),3); }
     read.innerHTML=`<span>ランク ${I.rk}</span><span>核の次元 ${3-I.rk}</span><span>${I.rk} + ${3-I.rk} = 3</span>`;
     msg.innerHTML=t<.98?['「再生」を押してください。','紫の破線が核です。「再生」を押すと、この直線の方向につぶれます。','紫の平面が核です。「再生」を押すと、この平面に沿った 2 次元ぶんがつぶれます。'][k]:
-      ['<b>ランク 3。</b> 箱は傾きましたが、つぶれていません。核は {0} です。','<b>ランク 2。</b> 空間が青い平面 (像) につぶれました。核は直線で 1 次元です。','<b>ランク 1。</b> 空間が青い直線 (像) につぶれました。核は平面で 2 次元です。'][k]; };
+      ['<b>ランクは 3 です。</b> 箱は傾きましたが、つぶれていません。核は {0} です。','<b>ランクは 2 です。</b> 空間が青い平面 (像) につぶれました。核は直線で 1 次元です。','<b>ランクは 1 です。</b> 空間が青い直線 (像) につぶれました。核は平面で 2 次元です。'][k]; };
   const go=()=>{ t=0; plot.play(1300,x=>{t=x;}); };
   seg(ctl,['ランク 3','ランク 2','ランク 1'],i=>{k=i;go();},1);
   btn(ctl,'再生',go,true); btn(ctl,'点を戻す',()=>{cancelAnimationFrame(plot.raf);t=0;plot.render();});
@@ -518,7 +540,7 @@ VIZ.diagSteps=root=>{
   };
   const nx=btn(ctl,'次の段階',()=>{ if(st>=3) return; note=''; const a=seq[st], b=seq[st+1]; st++; plot.play(900,t=>{M=tween(a,b,t);}); },true);
   btn(ctl,'最初から',()=>{ note=''; st=0; M=I; plot.render(); });
-  btn(ctl,'A を直接掛ける',()=>{ st=0; note='A を 1 回で掛けました。行き先は 3 段階に分けたときと同じです。'; plot.play(900,t=>{M=tween(I,A,t);}); });
+  btn(ctl,'A を直接掛ける',()=>{ const f=M; st=3; note='A を 1 回で掛けました。行き先は 3 段階に分けたときと同じです。もう一度見るときは「最初から」を押してください。'; plot.play(900,t=>{M=tween(f,A,t);}); });
   plot.render(); return ()=>plot.destroy();
 };
 
@@ -574,32 +596,35 @@ VIZ.lsq=root=>{
   const err=(a,b)=>D.reduce((s,q)=>s+(q.y-a*q.x-b)**2,0);
   plot.draw=p=>{
     p.base(); const a=(L1.y-L0.y)/7, b=L0.y+3.5*a, F=fit();
-    for(const q of D){ const y=a*q.x+b, s=Math.abs(q.y-y); p.poly([[q.x,y],[q.x,q.y],[q.x+s,q.y],[q.x+s,y]],p.css('--c-area'),p.css('--c-area'),1.2,.3); }
+    for(const q of D){ const y=a*q.x+b, s=Math.abs(q.y-y)*(q.x>0?-1:1); p.poly([[q.x,y],[q.x,q.y],[q.x+s,q.y],[q.x+s,y]],p.css('--c-area'),p.css('--c-area'),1.2,.3); }
     p.line([L0.x,L0.y],[L1.x,L1.y],p.css('--c-k'),2.5);
     if(!F){ read.textContent='点が縦一列に並んでいます'; msg.textContent='x 座標がすべて同じだと、傾きが決まりません。黒い点を左右に散らしてください。'; return; }
     const e=err(a,b), best=err(F[0],F[1]), top=Math.max(e,best,1e-9);
     read.innerHTML=`<span class="ck">y = ${fmt(a)}x ${b<0?'−':'+'} ${fmt(Math.abs(b))}</span><span class="cs">今の合計 ${fmt(e)}<span class="cs-bar"><i style="width:${e/top*100}%"></i></span></span><span class="cs">最小の合計 ${fmt(best)}<span class="cs-bar"><i style="width:${best/top*100}%"></i></span></span>`;
-    msg.innerHTML=e-best<.02?'<b>合計が最小になっています。</b> これが最小二乗法で決まる直線です。直線を少しでも動かすと、正方形の面積の合計が増えます。':'黒い点と直線のずれを 1 辺とする正方形を描いています。青い直線の両端を動かして、面積の合計を「最小の合計」に近づけてください。';
+    msg.innerHTML=e-best<.02?'<b>合計が最小になりました。</b> この直線が最小二乗法で求める直線です。直線を少しでも動かすと、正方形の面積の合計が増えます。':'黒い点と直線のずれを 1 辺とする正方形を描いています。青い直線の両端を動かして、面積の合計を「最小の合計」に近づけてください。';
   };
   btn(ctl,'最小の直線にする',()=>{ const F=fit(); if(F) moveTo(plot,[L0,L1],[[-3.5,F[1]-3.5*F[0]],[3.5,F[1]+3.5*F[0]]]); },true);
   btn(ctl,'直線をずらす',()=>moveTo(plot,[L0,L1],[[-3.5,1],[3.5,0]]));
   plot.render(); return ()=>plot.destroy();
 };
 
-/* 12 最小二乗は列空間への正射影 */
+/* 12 最小二乗は列空間への正射影。3 点 (x = −1, 0, 1) に直線 y = a + bx を当てはめる */
 VIZ.lsq3=root=>{
-  const {plot,read,msg,ctl}=frame(root,{title:'列空間へ垂直に下ろす',hint:'なぞると回ります。紫の点も動かせます',three:true,h:320,opt:{scale:44,cy:.6},legend:[['ci','A の 1 列目'],['cj','A の 2 列目'],['cm','b'],['ck','Ax (正射影)'],['ca','誤差']]});
-  const a1=[2,0,.5], a2=[0,2,.5], b={x:1,y:1.25,z:2,color:'--c-m',lim:2.5}; plot.handles=[b];
+  const {plot,read,msg,ctl}=frame(root,{title:'列空間へ垂直に下ろす',hint:'なぞると回ります',three:true,h:330,opt:{scale:50,cy:.6,yaw:2.6,pitch:.42},legend:[['ci','1 列目 (1, 1, 1)'],['cj','2 列目 (−1, 0, 1)'],['cm','b = 3 点の y 座標'],['ck','Ax (正射影)'],['ca','誤差']]});
+  const c1=[1,1,1], c2=[-1,0,1], y=[.5,2.25,1];
   const dot=(u,v)=>u[0]*v[0]+u[1]*v[1]+u[2]*v[2];
   plot.draw=p=>{
-    p.floor(3); const B=[b.x,b.y,b.z], G=[dot(a1,a1),dot(a1,a2),dot(a1,a2),dot(a2,a2)], x=mul(inv2(G),[dot(a1,B),dot(a2,B)]), pr=a1.map((v,i)=>x[0]*v+x[1]*a2[i]), r=B.map((v,i)=>v-pr[i]);
-    const c=(s,t)=>a1.map((v,i)=>s*v+t*a2[i]); p.poly([c(-1.2,-1.2),c(1.4,-1.2),c(1.4,1.4),c(-1.2,1.4)],p.css('--c-k'),.16,p.css('--c-k'),1);
-    p.arrow([0,0,0],a1,p.css('--c-i'),3); p.arrow([0,0,0],a2,p.css('--c-j'),3);
-    p.arrow([0,0,0],pr,p.css('--c-k'),3.5,'Ax'); p.line(pr,B,p.css('--c-area'),3); p.arrow([0,0,0],B,p.css('--c-m'),3,'b');
-    read.innerHTML=`<span class="ck">x = ${V(x)}</span><span class="ca">誤差の長さ ${fmt(Math.hypot(...r))}</span><span>誤差·1 列目 = ${fmt(dot(r,a1))}</span><span>誤差·2 列目 = ${fmt(dot(r,a2))}</span>`;
-    msg.innerHTML='青い面が A の列空間です。b は面の外にあるので Ax = b には解がありません。面の上で b にいちばん近い点が Ax で、黄色い誤差は面に垂直です。誤差と 2 つの列の内積はどちらも 0 になっています。';
+    p.floor(2.5); const B=y.slice(), a=(B[0]+B[1]+B[2])/3, b=(B[2]-B[0])/2, pr=c1.map((v,i)=>a*v+b*c2[i]), r=B.map((v,i)=>v-pr[i]), rl=Math.hypot(...r);
+    const c=(s,t)=>c1.map((v,i)=>s*v+t*c2[i]); p.poly([c(-.2,-1),c(2,-1),c(2,1),c(-.2,1)],p.css('--c-k'),.15,p.css('--c-k'),1);
+    p.arrow([0,0,0],c1,p.css('--c-i'),3); p.arrow([0,0,0],c2,p.css('--c-j'),3);
+    p.arrow([0,0,0],pr,p.css('--c-k'),3.5);
+    if(rl>.02){ p.line(pr,B,p.css('--c-area'),4); const m=p.P(pr.map((v,i)=>(v+B[i])/2)); p.label(m[0]+26,m[1],'誤差',p.css('--c-area')); const u=r.map(x=>x/rl*.22), w=Math.hypot(...pr)>1e-9?pr.map(x=>-x/Math.hypot(...pr)*.22):[0,0,0];
+      p.line(pr.map((v,i)=>v+u[i]),pr.map((v,i)=>v+u[i]+w[i]),p.css('--ink2'),1.2); p.line(pr.map((v,i)=>v+w[i]),pr.map((v,i)=>v+u[i]+w[i]),p.css('--ink2'),1.2); }
+    p.arrow([0,0,0],B,p.css('--c-m'),3,'b'); const e=p.P(pr); p.label(e[0]-22,e[1]+14,'Ax',p.css('--c-k'));
+    read.innerHTML=`<span class="ck">直線 y = ${fmt(a)} ${b<0?'−':'+'} ${fmt(Math.abs(b))}x</span><span class="ca">誤差の長さ ${fmt(rl)}</span><span>誤差·1 列目 = ${fmt(dot(r,c1))}</span><span>誤差·2 列目 = ${fmt(dot(r,c2))}</span>`;
+    msg.innerHTML=rl<.02?'<b>誤差は 0 です。</b> b が青い面の上にあります。3 点が一直線に並んでいて、Ax = b に解があります。':'3 点 (−1, y₁)、(0, y₂)、(1, y₃) に直線 y = a + bx を当てはめます。b は青い面 (列空間) の外にあるので、Ax = b には解がありません。面の上で b にいちばん近い点が Ax で、黄色い誤差は面と直交します。Ax の係数 (a, b) が直線の切片と傾きです。';
   };
-  slider(ctl,'b の高さ',0,2.5,.25,2,v=>{b.z=v;plot.render();});
+  [['点 1 (x = −1) の y₁',0],['点 2 (x = 0) の y₂',1],['点 3 (x = 1) の y₃',2]].forEach(([l,k])=>slider(ctl,l,0,2.5,.25,y[k],v=>{y[k]=v;plot.render();}));
   plot.render(); return ()=>plot.destroy();
 };
 

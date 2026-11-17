@@ -148,13 +148,13 @@ class Plot3{
     const hit=e=>{ const [px,py]=pos(e); let best=null,bd=34; for(const hd of this.handles){ if(hd.hide) continue; const q=this.P([hd.x,hd.y,hd.z||0]); const d=Math.hypot(q[0]-px,q[1]-py); if(d<bd){bd=d;best=hd;} } return best; };
     canvas.addEventListener('touchstart',e=>{ if(hit(e.touches[0])) e.preventDefault(); },{passive:false});
     canvas.addEventListener('pointerdown',e=>{ const hd=hit(e); canvas.setPointerCapture(e.pointerId);
-      if(hd){ this.drag=hd; e.preventDefault(); } else this.rot={x:e.clientX,yaw:this.yaw}; });
+      if(hd){ this.drag=hd; e.preventDefault(); } else this.rot={x:e.clientX,y:e.clientY,yaw:this.yaw,pitch:this.pitch}; });
     canvas.addEventListener('pointermove',e=>{
       if(this.drag){ const [px,py]=pos(e), hd=this.drag, z=hd.z||0, sp=Math.sin(this.pitch), cp=Math.cos(this.pitch);
         const xr=(px-this.ox)/this.s, yr=((this.oy-py)/this.s-z*cp)/sp, c=Math.cos(this.yaw), s=Math.sin(this.yaw);
         let x=c*xr+s*yr, y=-s*xr+c*yr; const sn=.25, L=hd.lim||3; x=Math.max(-L,Math.min(L,Math.round(x/sn)*sn)); y=Math.max(-L,Math.min(L,Math.round(y/sn)*sn));
         if(x!==hd.x||y!==hd.y){ hd.x=x; hd.y=y; this.render(); } }
-      else if(this.rot){ this.yaw=this.rot.yaw+(e.clientX-this.rot.x)*.01; this.render(); }
+      else if(this.rot){ this.yaw=this.rot.yaw+(e.clientX-this.rot.x)*.01; this.pitch=Math.max(.08,Math.min(1.3,this.rot.pitch+(e.clientY-this.rot.y)*.006)); this.render(); }
     });
     const up=()=>{ const was=this.drag; this.drag=null; this.rot=null; if(was&&this.onSettle) this.onSettle(); };
     canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
@@ -163,7 +163,7 @@ class Plot3{
   }
   css(n){ return this._c[n]||(this._c[n]=getComputedStyle(document.documentElement).getPropertyValue(n).trim()); }
   resize(){ const w=this.cv.clientWidth; if(!w) return; const d=Math.min(window.devicePixelRatio||1,3); this.w=w; this.cv.width=Math.round(w*d); this.cv.height=Math.round(this.h*d);
-    this.ctx.setTransform(d,0,0,d,0,0); this.s=Math.min(this.sc,w/9); this.ox=w/2; this.oy=this.h*this.cy; this.render(); }
+    this.ctx.setTransform(d,0,0,d,0,0); this.s=Math.min(this.sc,w/7.5); this.ox=w/2; this.oy=this.h*this.cy; this.render(); }
   /* 空間の点を画面の点に。3 番目は奥行き (大きいほど奥) */
   P(v){ const c=Math.cos(this.yaw), s=Math.sin(this.yaw), xr=c*v[0]-s*v[1], yr=s*v[0]+c*v[1], sp=Math.sin(this.pitch), cp=Math.cos(this.pitch);
     return [this.ox+this.s*xr, this.oy-this.s*(v[2]*cp+yr*sp), yr*cp-v[2]*sp]; }
@@ -191,5 +191,5 @@ class Plot3{
   /* 床の方眼と 3 本の軸 */
   floor(n=3){ const g=this.css('--grid'), g2=this.css('--grid2'); for(let k=-n;k<=n;k++){ this.line([k,-n,0],[k,n,0],g,1); this.line([-n,k,0],[n,k,0],g,1); }
     this.line([-n,0,0],[n,0,0],g2,1.3); this.line([0,-n,0],[0,n,0],g2,1.3); this.line([0,0,0],[0,0,n],g2,1.3);
-    const a=this.P([n,0,0]), b=this.P([0,n,0]), z=this.P([0,0,n]); this.label(a[0]+10,a[1],'x',g2); this.label(b[0]+10,b[1],'y',g2); this.label(z[0],z[1]-10,'z',g2); }
+    const t=this.css('--ink3'), a=this.P([n,0,0]), b=this.P([0,n,0]), z=this.P([0,0,n]); this.label(a[0]+10,a[1],'x',t); this.label(b[0]+10,b[1],'y',t); this.label(z[0],z[1]-10,'z',t); }
 }
